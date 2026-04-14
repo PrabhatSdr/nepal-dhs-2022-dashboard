@@ -25,7 +25,6 @@ def load_and_prepare():
     # ---- Check which data source is available (case‑insensitive) ----
     all_files = os.listdir() if os.path.exists('.') else []
     
-    # Find actual filenames (case‑insensitive match)
     ir_dta_actual = next((f for f in all_files if f.lower() == ir_dta.lower()), None)
     kr_dta_actual = next((f for f in all_files if f.lower() == kr_dta.lower()), None)
     ir_csv_actual = next((f for f in all_files if f.lower() == ir_csv.lower()), None)
@@ -96,17 +95,19 @@ def load_and_prepare():
     # ---- ANC 4+ ----
     if 'm14' in recent_births.columns:
         recent_births['anc4'] = (recent_births['m14'] >= 4) & (recent_births['m14'] <= 30)
-        recent_births.loc[recent_births['m14'] >= 98, 'anc4'] = np.nan
+        recent_births['anc4'] = recent_births['anc4'].astype('boolean')
+        recent_births.loc[recent_births['m14'] >= 98, 'anc4'] = pd.NA
     else:
-        recent_births['anc4'] = np.nan
+        recent_births['anc4'] = pd.NA
 
     # ---- Facility delivery ----
     if 'm15' in recent_births.columns:
         facility_codes = list(range(21, 27)) + list(range(31, 37))
         recent_births['facility'] = recent_births['m15'].isin(facility_codes)
-        recent_births.loc[recent_births['m15'] == 99, 'facility'] = np.nan
+        recent_births['facility'] = recent_births['facility'].astype('boolean')
+        recent_births.loc[recent_births['m15'] == 99, 'facility'] = pd.NA
     else:
-        recent_births['facility'] = np.nan
+        recent_births['facility'] = pd.NA
 
     # ---- Stunting ----
     haz_col = None
@@ -116,15 +117,16 @@ def load_and_prepare():
             break
     if haz_col:
         recent_births['stunted'] = recent_births[haz_col] < -200
-        recent_births.loc[recent_births[haz_col] > 9000, 'stunted'] = np.nan
+        recent_births['stunted'] = recent_births['stunted'].astype('boolean')
+        recent_births.loc[recent_births[haz_col] > 9000, 'stunted'] = pd.NA
     else:
-        recent_births['stunted'] = np.nan
+        recent_births['stunted'] = pd.NA
 
     # ---- Fertility ----
     if 'v201' in women.columns:
         women['tceb'] = women['v201']
     else:
-        women['tceb'] = np.nan
+        women['tceb'] = pd.NA
 
     return women, child, recent_births, province_map, data_source
 
