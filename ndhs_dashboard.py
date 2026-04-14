@@ -55,7 +55,7 @@ def load_and_prepare():
         # Synthetic sample data
         women = pd.read_csv(ir_csv_actual)
         child = pd.read_csv(kr_csv_actual)
-        data_source = "⚠️ Synthetic Sample Data (Demo Only)"
+        data_source = "⚠️ Synthetic Sample Data"
 
     else:
         st.error(f"""
