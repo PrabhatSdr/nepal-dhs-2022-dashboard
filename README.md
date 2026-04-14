@@ -22,12 +22,6 @@ Built-in diagnostic expander to verify variable availability and data distributi
 
 Fully reproducible with cached data loading for performance
 
-📸 Screenshots
-(Add screenshots of the Overview tab and a provincial chart here)
-
-https://screenshots/overview.png
-https://screenshots/province_chart.png
-
 🧠 Methodology
 All indicators follow DHS Program standard definitions:
 
