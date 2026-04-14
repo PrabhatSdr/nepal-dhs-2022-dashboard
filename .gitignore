@@ -1,0 +1,19 @@
+# DHS data files (DO NOT COMMIT - requires permission)
+*.dta
+*.DTA
+NPIR82FL.*
+NPKR82FL.*
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Streamlit
+.streamlit/secrets.toml
