@@ -12,20 +12,29 @@ st.subheader("NDHS 2022 Real Microdata – Weighted Estimates")
 # ====================== LOAD & PREPARE DATA ======================
 @st.cache_data(persist="disk")
 def load_and_prepare():
-    # Province mapping
     province_map = {
         1: 'Koshi', 2: 'Madhesh', 3: 'Bagmati', 4: 'Gandaki',
         5: 'Lumbini', 6: 'Karnali', 7: 'Sudurpashchim'
     }
 
-    # Check if real DTA files exist
-    ir_exists = os.path.exists("NPIR82FL.dta")
-    kr_exists = os.path.exists("NPKR82FL.dta")
+    ir_dta = "NPIR82FL.dta"
+    kr_dta = "NPKR82FL.dta"
+    ir_csv = "sample_women.csv"
+    kr_csv = "sample_child.csv"
 
-    if ir_exists and kr_exists:
-        # ----- Load real DHS data -----
+    # ---- Check which data source is available (case‑insensitive) ----
+    all_files = os.listdir() if os.path.exists('.') else []
+    
+    # Find actual filenames (case‑insensitive match)
+    ir_dta_actual = next((f for f in all_files if f.lower() == ir_dta.lower()), None)
+    kr_dta_actual = next((f for f in all_files if f.lower() == kr_dta.lower()), None)
+    ir_csv_actual = next((f for f in all_files if f.lower() == ir_csv.lower()), None)
+    kr_csv_actual = next((f for f in all_files if f.lower() == kr_csv.lower()), None)
+
+    if ir_dta_actual and kr_dta_actual:
+        # Real DHS data
         ir_cols = ['caseid', 'v001', 'v002', 'v005', 'v024', 'v025', 'v190', 'v201']
-        women, _ = pyreadstat.read_dta("NPIR82FL.dta", usecols=ir_cols)
+        women, _ = pyreadstat.read_dta(ir_dta_actual, usecols=ir_cols)
 
         kr_cols = [
             'caseid', 'v001', 'v002', 'v005', 'v024', 'v025', 'v190',
@@ -36,35 +45,47 @@ def load_and_prepare():
         available = []
         for col in kr_cols:
             try:
-                _ = pyreadstat.read_dta("NPKR82FL.dta", usecols=[col])
+                _ = pyreadstat.read_dta(kr_dta_actual, usecols=[col])
                 available.append(col)
             except:
                 continue
-        child, _ = pyreadstat.read_dta("NPKR82FL.dta", usecols=available)
+        child, _ = pyreadstat.read_dta(kr_dta_actual, usecols=available)
         data_source = "✅ Real DHS 2022 Microdata"
-    else:
-        # ----- Fallback to sample CSV data -----
-        women = pd.read_csv("sample_women.csv")
-        child = pd.read_csv("sample_child.csv")
+
+    elif ir_csv_actual and kr_csv_actual:
+        # Synthetic sample data
+        women = pd.read_csv(ir_csv_actual)
+        child = pd.read_csv(kr_csv_actual)
         data_source = "⚠️ Synthetic Sample Data (Demo Only)"
 
-    # --- Weight ---
+    else:
+        st.error(f"""
+        **❌ No data files found!**
+
+        Looking for either:
+        - `{ir_dta}` and `{kr_dta}` (real data), **OR**
+        - `{ir_csv}` and `{kr_csv}` (demo data).
+
+        Files in current directory: {all_files}
+        """)
+        st.stop()
+
+    # ---- Weight ----
     women['weight'] = women['v005'] / 1_000_000.0
     child['weight'] = child['v005'] / 1_000_000.0
 
-    # --- Province mapping (if not already present) ---
+    # ---- Province mapping ----
     if 'Province' not in women.columns:
         women['Province'] = women['v024'].map(province_map)
     if 'Province' not in child.columns:
         child['Province'] = child['v024'].map(province_map)
 
-    # ========== SELECT MOST RECENT BIRTH ==========
+    # ---- Most recent birth ----
     if 'midx' in child.columns:
         recent_flag = 'midx'
     elif 'bidx' in child.columns:
         recent_flag = 'bidx'
     else:
-        # Fallback: assume first row per caseid is most recent (for sample)
         child_sorted = child.sort_values(['caseid', 'b3'], ascending=[True, False])
         recent_births = child_sorted.groupby('caseid').first().reset_index()
         recent_flag = None
@@ -72,14 +93,14 @@ def load_and_prepare():
     if recent_flag is not None:
         recent_births = child[child[recent_flag] == 1].copy()
 
-    # ========== ANC 4+ ==========
+    # ---- ANC 4+ ----
     if 'm14' in recent_births.columns:
         recent_births['anc4'] = (recent_births['m14'] >= 4) & (recent_births['m14'] <= 30)
         recent_births.loc[recent_births['m14'] >= 98, 'anc4'] = np.nan
     else:
         recent_births['anc4'] = np.nan
 
-    # ========== FACILITY DELIVERY ==========
+    # ---- Facility delivery ----
     if 'm15' in recent_births.columns:
         facility_codes = list(range(21, 27)) + list(range(31, 37))
         recent_births['facility'] = recent_births['m15'].isin(facility_codes)
@@ -87,7 +108,7 @@ def load_and_prepare():
     else:
         recent_births['facility'] = np.nan
 
-    # ========== STUNTING ==========
+    # ---- Stunting ----
     haz_col = None
     for col in ['hc70', 'hc72', 'hw70', 'hw72']:
         if col in recent_births.columns:
@@ -99,13 +120,14 @@ def load_and_prepare():
     else:
         recent_births['stunted'] = np.nan
 
-    # ========== FERTILITY ==========
+    # ---- Fertility ----
     if 'v201' in women.columns:
         women['tceb'] = women['v201']
     else:
         women['tceb'] = np.nan
 
     return women, child, recent_births, province_map, data_source
+
 
 women, child, recent_births, province_map, data_source = load_and_prepare()
 
