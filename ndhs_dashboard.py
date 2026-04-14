@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import pyreadstat
+import os
 
 st.set_page_config(page_title="NDHS 2022 MCH Dashboard", layout="wide")
 st.title("🍼 Maternal & Child Health Dashboard")
@@ -11,58 +12,73 @@ st.subheader("NDHS 2022 Real Microdata – Weighted Estimates")
 # ====================== LOAD & PREPARE DATA ======================
 @st.cache_data(persist="disk")
 def load_and_prepare():
-    # --- Load Women's Recode (IR) ---
-    ir_cols = ['caseid', 'v001', 'v002', 'v005', 'v024', 'v025', 'v190', 'v201']
-    women, _ = pyreadstat.read_dta("NPIR82FL.dta", usecols=ir_cols)
-    
-    # --- Load Kids Recode (KR) ---
-    kr_cols = [
-        'caseid', 'v001', 'v002', 'v005', 'v024', 'v025', 'v190',
-        'bidx', 'midx',           # birth order index
-        'b3', 'b5', 'b8',
-        'hw1', 'hc70', 'hc71', 'hc72', 'hw70', 'hw72',
-        'm14', 'm15'
-    ]
-    # Read only existing columns
-    available = []
-    for col in kr_cols:
-        try:
-            _ = pyreadstat.read_dta("NPKR82FL.dta", usecols=[col])
-            available.append(col)
-        except:
-            continue
-    child, _ = pyreadstat.read_dta("NPKR82FL.dta", usecols=available)
-    
-    # --- Weight ---
-    women['weight'] = women['v005'] / 1_000_000.0
-    child['weight'] = child['v005'] / 1_000_000.0
-    
-    # --- Province mapping ---
+    # Province mapping
     province_map = {
         1: 'Koshi', 2: 'Madhesh', 3: 'Bagmati', 4: 'Gandaki',
         5: 'Lumbini', 6: 'Karnali', 7: 'Sudurpashchim'
     }
-    women['Province'] = women['v024'].map(province_map)
-    child['Province'] = child['v024'].map(province_map)
-    
+
+    # Check if real DTA files exist
+    ir_exists = os.path.exists("NPIR82FL.dta")
+    kr_exists = os.path.exists("NPKR82FL.dta")
+
+    if ir_exists and kr_exists:
+        # ----- Load real DHS data -----
+        ir_cols = ['caseid', 'v001', 'v002', 'v005', 'v024', 'v025', 'v190', 'v201']
+        women, _ = pyreadstat.read_dta("NPIR82FL.dta", usecols=ir_cols)
+
+        kr_cols = [
+            'caseid', 'v001', 'v002', 'v005', 'v024', 'v025', 'v190',
+            'bidx', 'midx', 'b3', 'b5', 'b8',
+            'hw1', 'hc70', 'hc71', 'hc72', 'hw70', 'hw72',
+            'm14', 'm15'
+        ]
+        available = []
+        for col in kr_cols:
+            try:
+                _ = pyreadstat.read_dta("NPKR82FL.dta", usecols=[col])
+                available.append(col)
+            except:
+                continue
+        child, _ = pyreadstat.read_dta("NPKR82FL.dta", usecols=available)
+        data_source = "✅ Real DHS 2022 Microdata"
+    else:
+        # ----- Fallback to sample CSV data -----
+        women = pd.read_csv("sample_women.csv")
+        child = pd.read_csv("sample_child.csv")
+        data_source = "⚠️ Synthetic Sample Data (Demo Only)"
+
+    # --- Weight ---
+    women['weight'] = women['v005'] / 1_000_000.0
+    child['weight'] = child['v005'] / 1_000_000.0
+
+    # --- Province mapping (if not already present) ---
+    if 'Province' not in women.columns:
+        women['Province'] = women['v024'].map(province_map)
+    if 'Province' not in child.columns:
+        child['Province'] = child['v024'].map(province_map)
+
     # ========== SELECT MOST RECENT BIRTH ==========
     if 'midx' in child.columns:
         recent_flag = 'midx'
     elif 'bidx' in child.columns:
         recent_flag = 'bidx'
     else:
-        st.error("Neither 'midx' nor 'bidx' found. Cannot identify most recent birth.")
-        st.stop()
-    
-    recent_births = child[child[recent_flag] == 1].copy()
-    
+        # Fallback: assume first row per caseid is most recent (for sample)
+        child_sorted = child.sort_values(['caseid', 'b3'], ascending=[True, False])
+        recent_births = child_sorted.groupby('caseid').first().reset_index()
+        recent_flag = None
+
+    if recent_flag is not None:
+        recent_births = child[child[recent_flag] == 1].copy()
+
     # ========== ANC 4+ ==========
     if 'm14' in recent_births.columns:
         recent_births['anc4'] = (recent_births['m14'] >= 4) & (recent_births['m14'] <= 30)
         recent_births.loc[recent_births['m14'] >= 98, 'anc4'] = np.nan
     else:
         recent_births['anc4'] = np.nan
-    
+
     # ========== FACILITY DELIVERY ==========
     if 'm15' in recent_births.columns:
         facility_codes = list(range(21, 27)) + list(range(31, 37))
@@ -70,7 +86,7 @@ def load_and_prepare():
         recent_births.loc[recent_births['m15'] == 99, 'facility'] = np.nan
     else:
         recent_births['facility'] = np.nan
-    
+
     # ========== STUNTING ==========
     haz_col = None
     for col in ['hc70', 'hc72', 'hw70', 'hw72']:
@@ -82,16 +98,22 @@ def load_and_prepare():
         recent_births.loc[recent_births[haz_col] > 9000, 'stunted'] = np.nan
     else:
         recent_births['stunted'] = np.nan
-    
+
     # ========== FERTILITY ==========
     if 'v201' in women.columns:
         women['tceb'] = women['v201']
     else:
         women['tceb'] = np.nan
-    
-    return women, child, recent_births, province_map
 
-women, child, recent_births, province_map = load_and_prepare()
+    return women, child, recent_births, province_map, data_source
+
+women, child, recent_births, province_map, data_source = load_and_prepare()
+
+# Display data source info
+if "Synthetic" in data_source:
+    st.warning(data_source)
+else:
+    st.success(data_source)
 
 # ====================== WEIGHTED AGGREGATION HELPERS ======================
 def weighted_mean(df, col, weight_col='weight'):
@@ -146,8 +168,8 @@ with st.expander("🔬 Diagnostic Info"):
         st.write("**Stunting variable summary:**")
         st.write(f"Non‑missing HAZ: {recent_births['stunted'].notna().sum():,}")
         st.write(f"Stunted (unweighted): {recent_births['stunted'].mean()*100:.1f}%")
-    st.write("**Columns in KR file:**", list(child.columns))
-    st.write("**Columns in IR file:**", list(women.columns))
+    st.write("**Columns in KR/child file:**", list(child.columns))
+    st.write("**Columns in IR/women file:**", list(women.columns))
 
 # ====================== TABS ======================
 tab1, tab2, tab3, tab4 = st.tabs(["📊 Overview", "🏔️ By Province", "💰 By Wealth", "📝 Notes"])
@@ -265,11 +287,19 @@ with tab4:
     - **Weights**: All estimates use `v005/1,000,000`.
     - **Missing values**: Codes 98/99 are excluded from percentages.
 
-    **🔬 Diagnostic Info expander above to inspect the raw variable distributions.**
+    ---
+    ### 📚 Recommended Citation
+    Ministry of Health and Population (MoHP), Nepal; New ERA; and ICF. 2023.  
+    *Nepal Demographic and Health Survey 2022*. Kathmandu, Nepal: MoHP, Nepal.
+
+    *The microdata used in this dashboard (NPIR82FL.dta and NPKR82FL.dta) were obtained from the DHS Program. The files are not included in this repository. To request access, visit [dhsprogram.com](https://dhsprogram.com/data/dataset_admin/login_main.cfm).*
+
+    ---
+    **🔬 Diagnostic Info expander above.**
     """)
 
-    with st.expander("🔍 Columns present in datasets"):
+    with st.expander("🔍 Columns actually present in your datasets"):
         st.write("**Women (IR) columns:**", list(women.columns))
         st.write("**Recent births (KR subset) columns:**", list(recent_births.columns))
 
-st.caption("NDHS 2022 Real Microdata Dashboard | Built By Prabhat Kumar Sardar")
+st.caption("NDHS 2022 Real Microdata Dashboard | By Prabhat Kumar Sardar")
