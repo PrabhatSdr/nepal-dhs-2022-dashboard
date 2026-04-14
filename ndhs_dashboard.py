@@ -312,7 +312,7 @@ with tab4:
     - **Missing values**: Codes 98/99 are excluded from percentages.
 
     ---
-    ### 📚 Recommended Citation
+    ### 📚 Citation
     Ministry of Health and Population (MoHP), Nepal; New ERA; and ICF. 2023.  
     *Nepal Demographic and Health Survey 2022*. Kathmandu, Nepal: MoHP, Nepal.
 
@@ -322,7 +322,7 @@ with tab4:
     **🔬 Diagnostic Info expander above.**
     """)
 
-    with st.expander("🔍 Columns actually present in your datasets"):
+    with st.expander("🔍 Columns present in datasets"):
         st.write("**Women (IR) columns:**", list(women.columns))
         st.write("**Recent births (KR subset) columns:**", list(recent_births.columns))
 
